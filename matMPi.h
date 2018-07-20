@@ -34,4 +34,6 @@ matPtr MultMpi(matPtr A, matPtr B, connPtr conn, int sync);
 
 int MWiseMpi(matPtr A, uint64_t func, connPtr conn, int sync);
 
+matPtr StrussenMpi(matPtr A, matPtr B, connPtr conn, int sync);
+
 #endif

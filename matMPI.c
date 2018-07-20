@@ -26,10 +26,6 @@ void synclizeMat(void* T, int size, MPI_Comm comm){
     MPI_Bcast((int*)T, size, MPI_INT, 0, comm);
 }
 
-int getBestMat_preNp(matPtr A, matPtr B){
-    
-}
-
 //Plus//////////////////////////////////////////////////////////////////
 matPtr AddMpi(matPtr A, matPtr B, connPtr conn, int sync){
     MPI_Comm comm = conn->_comm;
@@ -45,7 +41,6 @@ matPtr AddMpi(matPtr A, matPtr B, connPtr conn, int sync){
     if(sync == SYNC)synclizeMat(T, 2, comm);
         else if(rank > 0)T[0] = *A, T[1] = *B;
 
-    if(T[0].r != T[1].r || T[0].c != T[1].r)return NULL;
     matPtr C;
     double *sendbuffer = NULL;
     double *buffer = NULL;
@@ -90,7 +85,6 @@ matPtr AddMpi(matPtr A, matPtr B, connPtr conn, int sync){
         free(sendbuffer);
         free(buffer);
         free(bufferc);
-
         return C;
     }else{
 
@@ -286,5 +280,116 @@ int MWiseMpi(matPtr A, uint64_t func, connPtr conn, int sync){
         
         free(buffer);
         return ans;
+    }
+}
+
+//strussen/////////////////////////////////////////////////
+matPtr StrussenMpi(matPtr A, matPtr B, connPtr conn, int sync){
+    MPI_Comm comm = conn->_comm;
+    int rank;
+    MPI_Comm_rank(comm, &rank);
+    int np;
+    MPI_Comm_size(comm, &np);
+    
+    rawmat T[2];
+    if(rank == 0)T[0] = *A, T[1] = *B;
+    
+    if(sync == SYNC)synclizeMat(T, 2*sizeof(rawmat) / sizeof(int), comm);
+        else if(rank > 0)T[0] = *A, T[1] = *B;
+
+    if(T[0].c != T[1].r)return NULL;
+    
+    matPtr temp;
+    rawmat local_a;
+    rawmat local_b;
+    matPtr S;
+    matPtr C;
+    double *buffer = NULL;
+    double *sendbuffer = NULL;
+
+    int *_size = NULL, *_disp = NULL;
+    int lena = (T[0].c / np) * T[0].r;
+    int lenb = (T[1].r / np) * T[1].c;
+
+    if(rank == 0){
+        temp = Trans(A);
+        C = CreateMat(T[0].r, T[1].c);
+
+        int local_lena = (T[0].r * T[0].c) - (np - 1) * lena;
+        int local_lenb = (T[1].r * T[1].c) - (np - 1) * lenb;
+
+        buffer = malloc((local_lena + local_lenb) * sizeof(double));
+        sendbuffer = malloc((T[0].c * T[0].r + T[1].c * T[1].r) * sizeof(double));
+
+        _size = malloc(np * sizeof(int));
+        _disp = malloc(np * sizeof(int));
+        _size[0] = local_lena + local_lenb;
+        _disp[0] = 0;
+        memcpy(sendbuffer, temp->data, local_lena * sizeof(double));
+        memcpy(sendbuffer + local_lena, B->data, local_lenb * sizeof(double));
+        for(int i = 1; i < np; i++){
+            _size[i] = lena + lenb;
+            _disp[i] = _disp[i - 1] + _size[i - 1];
+            memcpy(sendbuffer + _disp[i], temp->data + local_lena + lena * (i - 1), lena * sizeof(double));
+            memcpy(sendbuffer + _disp[i] + lena, B->data + local_lenb + lenb * (i - 1), lenb * sizeof(double));
+        }
+
+        MPI_Scatterv(sendbuffer, _size, _disp, MPI_DOUBLE, buffer, _size[0], MPI_DOUBLE, 0, comm);
+        
+        local_a.r = T[0].c - (T[0].c / np) * (np - 1);
+        local_a.c = T[0].r;
+        local_b.r = T[1].r - (T[1].r / np) * (np - 1);
+        local_b.c = T[1].c;
+
+        local_a.data = buffer;
+        local_b.data = buffer + local_lena;
+
+        Tranself(&local_a);
+        S = MULT(&local_a, &local_b);
+        MPI_Reduce(
+            S->data,
+            C->data,
+            T[0].r * T[1].c,
+            MPI_DOUBLE,
+            MPI_SUM,
+            0,
+            comm);
+        
+        free(_size);
+        free(_disp);
+        FreeMat(S);
+        FreeMat(temp);
+        free(buffer);
+        free(sendbuffer);
+        return C;
+    }else{
+        C = CreateMat(0, 0);
+        buffer = malloc((lena + lenb) * sizeof(double));
+
+        MPI_Scatterv(sendbuffer, _size, _disp, MPI_DOUBLE, buffer, lena + lenb, MPI_DOUBLE, 0, comm);
+        
+        local_a.r = T[0].c / np;
+        local_a.c = T[0].r;
+        local_b.r = T[1].r / np;
+        local_b.c = T[1].c;
+
+        local_a.data = buffer;
+        local_b.data = buffer + lena;
+
+        Tranself(&local_a);       
+        S = Strussen(&local_a, &local_b);
+        
+        MPI_Reduce(
+            S->data,
+            C->data,
+            T[0].r * T[1].c,
+            MPI_DOUBLE,
+            MPI_SUM,
+            0,
+            comm);
+           
+        FreeMat(S);
+        free(buffer);
+        return NULL;
     }
 }

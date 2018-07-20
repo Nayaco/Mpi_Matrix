@@ -1,7 +1,7 @@
 CXX = gcc
-CXXFLAG = -O0 -g -Wall
+CXXFLAG = -O2 -Wall
 MPICXX = mpicc
-MPICXXFLAG = -O0 -g -Wall
+MPICXXFLAG = -O2 -Wall
 
 main: main.o matMPI.o mat.o
 	$(MPICXX) $(MPICXXFLAG) main.o matMPI.o mat.o -o main
@@ -20,6 +20,13 @@ mat.o: mat.c
 
 gener: gener.c
 	$(CXX) -O2 -Wall gener.c -o gener
+
+tester: tester.o mat.o
+	$(CXX) $(CXXFLAG) tester.o mat.o -o tester
+
+tester.o: tester.c
+	$(CXX) $(CXXFLAG) -c tester.c -o tester.o
+
 
 clean:
 	rm main gener
