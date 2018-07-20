@@ -1,3 +1,5 @@
 .vscode
 mpialloc.*
 test.*
+main
+gener
